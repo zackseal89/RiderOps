@@ -1,4 +1,5 @@
 import Sidebar from '@/components/Sidebar';
+import { ToastProvider } from '@/components/Toast';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -11,9 +12,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="layout">
-      <Sidebar />
-      <main className="main">{children}</main>
-    </div>
+    <ToastProvider>
+      <div className="layout">
+        <Sidebar />
+        <main className="main">{children}</main>
+      </div>
+    </ToastProvider>
   );
 }

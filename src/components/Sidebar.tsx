@@ -2,23 +2,50 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { Package, Bike, Map, Truck, ExternalLink, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
 
-const navItems = [
-  { href: '/dashboard', label: 'Orders', icon: '📦', exact: true },
-  { href: '/dashboard/riders', label: 'Riders', icon: '🏍️' },
-  { href: '/dashboard/zones', label: 'Zones', icon: '🗺️' },
-  { href: '/dashboard/couriers', label: 'Couriers', icon: '🚚' },
-];
+interface NavItem {
+  href: string;
+  label: string;
+  Icon: React.ElementType;
+  exact?: boolean;
+  badge?: number;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetch_ = () =>
+      fetch('/api/stats')
+        .then(r => r.json())
+        .then(d => { if (!cancelled) setPendingCount(d.pendingOrders ?? 0); })
+        .catch(() => {});
+
+    fetch_();
+    const interval = setInterval(fetch_, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  const navItems: NavItem[] = [
+    { href: '/dashboard',          label: 'Orders',   Icon: Package, exact: true, badge: pendingCount ?? undefined },
+    { href: '/dashboard/riders',   label: 'Riders',   Icon: Bike },
+    { href: '/dashboard/zones',    label: 'Zones',    Icon: Map },
+    { href: '/dashboard/couriers', label: 'Couriers', Icon: Truck },
+  ];
 
   return (
     <aside className="sidebar">
       {/* Logo */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">🚀</div>
+        <div className="sidebar-logo-icon">
+          <Zap size={16} color="#fff" fill="#fff" />
+        </div>
         <div>
           <div className="sidebar-logo-text">RiderOps</div>
           <div className="sidebar-logo-sub">Kenya Delivery Hub</div>
@@ -29,19 +56,20 @@ export default function Sidebar() {
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">Operations</div>
 
-        {navItems.map((item) => {
-          const isActive = item.exact
-            ? pathname === item.href
-            : pathname.startsWith(item.href);
+        {navItems.map(({ href, label, Icon, exact, badge }) => {
+          const isActive = exact ? pathname === href : pathname.startsWith(href);
 
           return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={href}
+              href={href}
               className={clsx('nav-link', isActive && 'active')}
             >
-              <span style={{ fontSize: 16 }}>{item.icon}</span>
-              {item.label}
+              <Icon size={15} strokeWidth={isActive ? 2.2 : 1.8} />
+              <span style={{ flex: 1 }}>{label}</span>
+              {badge !== undefined && badge > 0 && (
+                <span className="nav-badge">{badge}</span>
+              )}
             </Link>
           );
         })}
@@ -56,22 +84,14 @@ export default function Sidebar() {
           rel="noopener noreferrer"
           className="nav-link"
         >
-          <span style={{ fontSize: 16 }}>📍</span>
-          Shipday Map
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>↗</span>
+          <ExternalLink size={15} strokeWidth={1.8} />
+          <span style={{ flex: 1 }}>Shipday Map</span>
+          <ExternalLink size={10} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
         </a>
       </nav>
 
       {/* Footer */}
-      <div style={{
-        padding: '12px 16px',
-        borderTop: '1px solid var(--border)',
-        fontSize: 11,
-        color: 'var(--text-muted)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-      }}>
+      <div className="sidebar-footer">
         <span className="live-dot" />
         System Live
       </div>

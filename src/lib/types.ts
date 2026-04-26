@@ -75,6 +75,29 @@ export interface Rider {
   created_at: string;
 }
 
+export type OrderStatus =
+  | 'pending'
+  | 'assigned'
+  | 'rider_accepted'
+  | 'picked_up'
+  | 'in_transit'
+  | 'delivered'
+  | 'failed'
+  | 'cancelled';
+
+export interface DeliveryAssignment {
+  id: string;
+  order_id: string;
+  rider_id: string | null;
+  assigned_at: string | null;
+  pickup_at: string | null;
+  delivered_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  rms_riders?: Pick<Rider, 'id' | 'name' | 'phone' | 'vehicle_type'> | null;
+}
+
 export interface Order {
   id: string;
   shopify_order_id: string;
@@ -85,19 +108,12 @@ export interface Order {
   delivery_address: string;
   delivery_town: string | null;
   delivery_type: 'last_mile' | 'long_distance';
-  courier_partner: string | null;
+  courier_partner: CourierPartner | null;
   courier_tracking_id: string | null;
-  status:
-    | 'pending'
-    | 'assigned'
-    | 'rider_accepted'
-    | 'picked_up'
-    | 'in_transit'
-    | 'delivered'
-    | 'failed'
-    | 'cancelled';
+  status: OrderStatus;
   order_total_kes: number | null;
-  delivery: unknown;
+  rms_zones?: Pick<Zone, 'id' | 'name' | 'town' | 'color'> | null;
+  rms_deliveries?: DeliveryAssignment[] | null;
   created_at: string;
   updated_at: string;
 }

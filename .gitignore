@@ -43,3 +43,5 @@ next-env.d.ts
 
 # tooling logs
 excalidraw.log
+# Added by code-review-graph
+.code-review-graph/
