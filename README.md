@@ -1,110 +1,244 @@
+<div align="center">
+
 # RiderOps
 
-Delivery management dashboard for a Kenyan Shopify store. Sits between Shopify and your delivery layer — your own riders for last-mile, national couriers (Fargo, Pickup Mtaani, G4S) for everything else.
+**Dispatch hub for Kenyan last-mile delivery**
+
+Shopify order comes in → classified as last-mile or long-distance → dispatched to your riders (via Shipday) or a courier partner → customer gets SMS updates
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fzackseal89%2FRiderOps&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,SHOPIFY_WEBHOOK_SECRET,SHOPIFY_STORE_DOMAIN,SHOPIFY_ADMIN_API_TOKEN,SHIPDAY_API_KEY,WAREHOUSE_ADDRESS&envDescription=Supabase%2C%20Shopify%2C%20and%20Shipday%20credentials%20are%20required%20to%20run%20RiderOps&envLink=https%3A%2F%2Fgithub.com%2Fzackseal89%2FRiderOps%23configuration&project-name=riderops&repository-name=RiderOps)
+
+</div>
+
+---
 
 ## What it does
 
 When a customer pays on your Shopify store, RiderOps:
 
-1. Receives the order via webhook (HMAC-verified).
-2. Geocodes the delivery address.
-3. Classifies it as **last-mile** (inside one of your zones) or **long-distance** (anywhere else).
-4. **Last-mile** → pushes the order into [Shipday](https://shipday.com), which dispatches to one of your registered riders via their mobile app.
-5. **Long-distance** → books the parcel with the appropriate courier partner and stores the tracking number.
-6. Sends the customer an SMS via [Africa's Talking](https://africastalking.com) at each status change.
-7. Pushes fulfillment status back to Shopify when delivered.
+1. Receives the order via a **HMAC-verified Shopify webhook**
+2. Geocodes the delivery address and checks it against your active **delivery zones**
+3. Routes it as either **last-mile** (inside a zone) or **long-distance** (anywhere else)
+4. **Last-mile** → pushes the order into [Shipday](https://shipday.com), which sends it to a rider's phone via the Shipday app
+5. **Long-distance** → auto-books with the best courier (Fargo, Pickup Mtaani, or G4S) and stores the tracking ID
+6. Sends the customer an **SMS update** (via Africa's Talking) at each status change
+7. Pushes fulfillment status back to **Shopify** when delivered
 
-You manage everything from a single web dashboard at `/dashboard`.
+Everything is managed from a single dashboard at `/dashboard`.
+
+---
 
 ## Architecture
 
 ```
-Shopify ──webhook──► RiderOps ──API──► Shipday ──app──► Riders
-   ▲                    │  │  │
-   │                    │  │  └──► Africa's Talking (SMS to customer)
-   │                    │  └────► Google Maps (geocode address)
-   │                    └─► Fargo / Pickup Mtaani / G4S
-   │
-   └── Shopify gets back: fulfillment status when delivered
+Shopify ──webhook──► RiderOps ──API──► Shipday ──app──► Riders (GPS + POD)
+   ▲                    │  │
+   │    fulfillment      │  └──► Africa's Talking (SMS to customer)
+   └────────────────────┤
+                        └──► Fargo / Pickup Mtaani / G4S  (long-distance)
+
+Database: Supabase (Postgres)
+Hosting:  Vercel (Edge-ready Next.js)
 ```
 
-RiderOps itself stays thin. Shipday handles the hard stuff (rider mobile app, GPS, route optimization, proof-of-delivery photos) at the SaaS tier. RiderOps is the integration glue plus a unified dashboard.
+RiderOps stays thin — Shipday handles the hard parts (rider app, GPS, route optimisation, proof-of-delivery photos). RiderOps is the integration glue and the ops dashboard.
+
+---
 
 ## Tech stack
 
 | Layer | Tool |
 |---|---|
-| Backend + frontend | Next.js 16 (App Router) |
-| Database | Supabase (PostgreSQL) |
-| Last-mile dispatch | Shipday |
+| Framework | Next.js 16 (App Router, React 19) |
+| Database | Supabase (PostgreSQL + RLS) |
+| Last-mile dispatch | Shipday SaaS |
 | SMS | Africa's Talking |
 | Geocoding | Google Maps Platform |
-| Hosting (intended) | Vercel |
-| Couriers (long-distance) | Fargo, Pickup Mtaani, G4S |
+| Hosting | Vercel |
+| Long-distance couriers | Fargo · Pickup Mtaani · G4S |
 
-## Quick start
+---
+
+## Deploy to Vercel (recommended)
+
+Click the button above, or follow these steps:
+
+1. **Fork or clone** this repo
+2. Click **Deploy with Vercel** → it will prompt you for the required environment variables
+3. After deploy, **run the Supabase migration** (see [Database setup](#database-setup))
+4. **Register your Shopify webhook** pointing at `https://your-domain.vercel.app/api/webhooks/shopify`
+5. **Register the Shipday status webhook** pointing at `https://your-domain.vercel.app/api/webhooks/shipday`
+
+---
+
+## Local development
 
 ```bash
+git clone https://github.com/zackseal89/RiderOps.git
+cd RiderOps
 npm install
-cp .env.local .env.local.bak  # keep your placeholders aside
-# Fill in real values in .env.local — see Configuration below
+
+cp .env.example .env.local
+# Fill in real values (Supabase, Shopify, Shipday are required)
+
 npm run dev
+# Dashboard at http://localhost:3000/dashboard
 ```
 
-Dashboard runs at [http://localhost:3000/dashboard](http://localhost:3000/dashboard).
+---
+
+## Database setup
+
+The migration lives in `supabase/migrations/`. Run it once against your Supabase project:
+
+**Option A — Supabase SQL editor (easiest)**
+
+1. Open [Supabase Dashboard](https://supabase.com/dashboard) → your project → **SQL Editor**
+2. Paste the contents of `supabase/migrations/20260426120000_init_rms_schema.sql`
+3. Click **Run**
+
+**Option B — Supabase CLI**
+
+```bash
+supabase login
+supabase link --project-ref your-project-ref
+supabase db push
+```
+
+The migration creates five tables (`rms_zones`, `rms_riders`, `rms_orders`, `rms_deliveries`, `rms_tracking`), enables Row Level Security on all of them, and seeds five starter zones (Nairobi CBD, Westlands, Kilimani, Karen, Mombasa CBD).
+
+---
 
 ## Configuration
 
-All credentials go in `.env.local` (gitignored). Each integration is independently togglable — missing keys fall back to mock behaviour where possible (e.g. SMS logs to console, courier APIs return stub tracking IDs).
+Copy `.env.example` to `.env.local` and fill in values. Variables marked **required** will cause the app to fail without them.
 
-### Required for the dashboard to load
-- **Supabase** — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. The schema migration is **not yet committed** — see Roadmap.
+### Required (app won't boot)
+
+| Variable | Where to find it |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Dashboard → Project Settings → API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Project Settings → API |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Project Settings → API → `service_role` |
 
 ### Required for live operations
-- **Shopify** — `SHOPIFY_WEBHOOK_SECRET`, `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_API_TOKEN`. Webhook event: *Order payment*, URL: `https://your-domain/api/webhooks/shopify`.
-- **Shipday** — `SHIPDAY_API_KEY`, `WAREHOUSE_ADDRESS`. Configure the Shipday status webhook to `https://your-domain/api/webhooks/shipday`.
-- **Google Maps** — `GOOGLE_MAPS_API_KEY` (server) and `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (client). Enable Geocoding API + Maps JavaScript API.
 
-### Optional / fallbacks to mock
-- **Africa's Talking** — `AT_API_KEY`, `AT_USERNAME`, `AT_SHORTCODE`. Without these, SMS is logged to the console only.
-- **Couriers** — `FARGO_API_KEY`, `PICKUP_MTAANI_API_KEY`, `G4S_API_KEY`. Without these, the system generates placeholder tracking IDs (e.g. `PM-1730000000000`) so flows can be tested end-to-end. None of these three couriers expose a public API; access requires an account-holder request — see [src/lib/couriers.ts](src/lib/couriers.ts) for contact pointers.
+| Variable | Where to find it |
+|---|---|
+| `SHOPIFY_WEBHOOK_SECRET` | Shopify Admin → Settings → Notifications → Webhooks |
+| `SHOPIFY_STORE_DOMAIN` | `your-store.myshopify.com` (no `https://`) |
+| `SHOPIFY_ADMIN_API_TOKEN` | Shopify Admin → Apps → Develop apps → API credentials |
+| `SHIPDAY_API_KEY` | [app.shipday.com](https://app.shipday.com) → Settings → API |
+| `WAREHOUSE_ADDRESS` | Your dispatch/pickup address (e.g. `123 Moi Avenue, Nairobi`) |
+
+### Optional — degrade gracefully without them
+
+| Variable | Effect when missing |
+|---|---|
+| `AT_API_KEY` / `AT_USERNAME` / `AT_SHORTCODE` | SMS logged to console only |
+| `GOOGLE_MAPS_API_KEY` | Routing falls back to keyword-matching on town names |
+| `FARGO_API_KEY` / `PICKUP_MTAANI_API_KEY` / `G4S_API_KEY` | Placeholder tracking IDs generated (end-to-end flow still works for testing) |
+
+---
 
 ## Project layout
 
 ```
 src/
-  app/
-    api/
-      orders/         GET, POST — list and create orders
-      riders/         GET, POST — list and register riders (also creates in Shipday)
-      zones/          GET, POST, PATCH — manage delivery coverage zones
-      stats/          GET — dashboard KPIs
-      webhooks/
-        shopify/      Inbound: new paid orders from Shopify (HMAC-verified)
-        shipday/      Inbound: rider status updates from Shipday
-    dashboard/        Web UI — orders, riders, zones, couriers
-  components/         Shared UI (sidebar, etc.)
-  lib/
-    supabase/         Server + browser clients
-    routing.ts        Last-mile vs long-distance classifier + geocoder
-    shipday.ts        Shipday REST client
-    couriers.ts       Fargo / Pickup Mtaani / G4S clients (currently stubs)
-    notifications.ts  Africa's Talking SMS client + templates
-    types.ts          Shared TypeScript types
+├── app/
+│   ├── api/
+│   │   ├── orders/
+│   │   │   ├── route.ts          GET (list + filter) · POST (manual create)
+│   │   │   └── [id]/
+│   │   │       ├── route.ts      PATCH (status transitions + delivery timestamps)
+│   │   │       └── assign/
+│   │   │           └── route.ts  POST (assign rider → also mirrors to Shipday)
+│   │   ├── riders/
+│   │   │   ├── route.ts          GET (list) · POST (register + create in Shipday)
+│   │   │   └── [id]/
+│   │   │       └── route.ts      PATCH (status toggle, zone, profile)
+│   │   ├── zones/
+│   │   │   ├── route.ts          GET · POST
+│   │   │   └── [id]/route.ts     PATCH (activate / deactivate)
+│   │   ├── stats/route.ts        GET dashboard KPIs
+│   │   └── webhooks/
+│   │       ├── shopify/route.ts  Inbound: paid orders (HMAC-verified)
+│   │       └── shipday/route.ts  Inbound: rider status updates
+│   └── dashboard/
+│       ├── page.tsx              Order queue (search, filter, assign from panel)
+│       ├── riders/page.tsx       Rider cards with inline status toggle
+│       ├── zones/page.tsx        Zone management + routing logic explained
+│       └── couriers/page.tsx     Courier partner reference
+├── components/
+│   ├── Sidebar.tsx               Nav with live pending-orders badge
+│   ├── Toast.tsx                 Toast + useToast provider
+│   ├── OrderDetailPanel.tsx      Slide-in: customer info, timeline, action buttons
+│   └── AssignRiderModal.tsx      Pick available rider → assign
+└── lib/
+    ├── supabase/
+    │   ├── client.ts             Browser Supabase client
+    │   ├── server.ts             Server / service-role client
+    │   └── database.types.ts     Auto-generated TypeScript types
+    ├── shipday.ts                Shipday REST client (orders, carriers, tracking)
+    ├── couriers.ts               Fargo · Pickup Mtaani · G4S clients
+    ├── notifications.ts          Africa's Talking SMS templates
+    ├── routing.ts                Last-mile vs long-distance classifier
+    └── types.ts                  Shared TypeScript types
+
+supabase/
+└── migrations/
+    └── 20260426120000_init_rms_schema.sql   Full schema + seed zones
 ```
 
-## Status
+---
 
-This is an early scaffold. The dashboard, webhooks, and integration clients are in place and type-check clean, but the **Supabase schema hasn't been written yet** — the dashboard pages will fail to load until the migration is created and run.
+## Dashboard pages
 
-### Roadmap
+| Page | Path | Description |
+|---|---|---|
+| Order Queue | `/dashboard` | All orders, live search, status filter, click a row to open the detail panel |
+| Riders | `/dashboard/riders` | Rider cards, inline available/offline toggle, register new riders |
+| Zones | `/dashboard/zones` | Define last-mile coverage areas (activate = riders, deactivate = couriers) |
+| Couriers | `/dashboard/couriers` | Long-distance partner reference with API key instructions |
 
-1. **Supabase migration** — schema for `rms_orders`, `rms_riders`, `rms_zones`, `rms_deliveries`, `rms_tracking`. Currently blocking everything.
-2. **Manual rider assignment UI** — "Assign Rider" button on the orders table.
-3. **PWA manifest** — referenced in [src/app/layout.tsx](src/app/layout.tsx) but not yet present.
-4. **Live map view** — `react-leaflet` is installed but not wired up.
-5. **Real courier API integrations** — pending API access from each provider.
-6. **Customer tracking page** — public `/track/[order]` URL.
+---
+
+## Order lifecycle
+
+```
+pending → assigned → rider_accepted → picked_up → in_transit → delivered
+                                                              ↘ failed
+```
+
+The dashboard panel lets dispatchers manually advance status. Shipday webhooks advance it automatically when the rider updates their app.
+
+---
+
+## Webhook setup
+
+### Shopify
+
+1. Shopify Admin → Settings → Notifications → **Webhooks**
+2. Create webhook: **Order payment** → `https://your-domain/api/webhooks/shopify`
+3. Copy the signing secret into `SHOPIFY_WEBHOOK_SECRET`
+
+### Shipday
+
+1. [app.shipday.com](https://app.shipday.com) → Settings → **Integrations → Webhook**
+2. URL: `https://your-domain/api/webhooks/shipday`
+3. Enable all order status events
+
+---
+
+## Roadmap
+
+- [ ] Customer-facing tracking page at `/track/[order]`
+- [ ] Live map view (Leaflet + Shipday GPS feed)
+- [ ] Bulk assign — assign multiple pending orders to one rider
+- [ ] Real courier API integrations (Fargo and G4S require enterprise account setup)
+- [ ] Per-rider earnings report
+
+---
 
 ## License
 
